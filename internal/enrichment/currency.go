@@ -43,10 +43,19 @@ func FetchExchangeRates() (map[string]float64, error) {
 	defer resp.Body.Close()
 
 	var result struct {
-		Rates map[string]float64 `json:"rates"`
+		Rates   map[string]float64 `json:"rates"`
+		Success bool               `json:"success"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
+	}
+
+	if !result.Success {
+		log.Info().Msg("Failed to fetch exchange rates, using fallback rates")
+		cache.rates = fallbackRates
+		cache.timestamp = time.Now()
+
+		return result.Rates, nil
 	}
 
 	// Update cache
@@ -60,17 +69,14 @@ func FetchExchangeRates() (map[string]float64, error) {
 func ConvertToEUR(amount int, currency string) int {
 	rates, err := FetchExchangeRates()
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to fetch exchange rates")
-		return amount // Fallback: return the original amount
+		log.Error().Err(err).Msg("Failed to fetch exchange rates, returning original amount")
+		return amount
 	}
 
 	rate, exists := rates[currency]
 	if !exists {
-		log.Warn().Str("currency", currency).Msg("Unknown currency") // Throwing this error whole time as we do not get date because API key for exchange rate is required
-		rate, exists = fallbackRates[currency]
-		if !exists {
-			return amount // Fallback: return the original amount
-		}
+		log.Warn().Str("currency", currency).Msg("Unknown currency")
+		return amount
 	}
 
 	return int(float64(amount) / rate)
